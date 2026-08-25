@@ -1,0 +1,993 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>タスク管理</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif;
+  background: #faf8f3;
+  color: #1a1a1a;
+  padding: 16px;
+  max-width: 600px;
+  margin: 0 auto;
+  font-size: 15px;
+}
+h1 { font-size: 18px; margin-bottom: 16px; }
+.tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid #ddd; }
+.tab { flex: 1; padding: 10px; background: none; border: none; cursor: pointer; font-size: 14px; color: #888; }
+.tab.active { color: #1a1a1a; border-bottom: 2px solid #1a1a1a; font-weight: 500; }
+textarea, input[type="text"], input[type="date"] {
+  width: 100%; padding: 10px; font-size: 16px;
+  border: 1px solid #ccc; border-radius: 6px;
+  font-family: inherit;
+}
+textarea { min-height: 80px; resize: vertical; }
+.label { font-size: 12px; color: #666; margin: 12px 0 6px; display: block; }
+.qbtns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.qbtn {
+  text-align: left; padding: 10px; background: #fff;
+  border: 1px solid #ccc; border-radius: 6px; cursor: pointer;
+  font-size: 13px;
+}
+.qbtn.sel { border-width: 2px; padding: 9px; }
+.qbtn[data-q="1"].sel, .qbtn[data-eq="1"].sel { border-color: #c44; background: #fcebeb; }
+.qbtn[data-q="2"].sel, .qbtn[data-eq="2"].sel { border-color: #2a8a6a; background: #e1f5ee; }
+.qbtn[data-q="3"].sel, .qbtn[data-eq="3"].sel { border-color: #b87718; background: #faeeda; }
+.qbtn[data-q="4"].sel, .qbtn[data-eq="4"].sel { border-color: #666; background: #f0f0f0; }
+.qnum { font-size: 11px; font-weight: 600; }
+.q1 .qnum { color: #a33; }
+.q2 .qnum { color: #2a8a6a; }
+.q3 .qnum { color: #a36510; }
+.q4 .qnum { color: #555; }
+
+.due-row { display: flex; gap: 8px; }
+.due-row input { flex: 1; }
+.due-clear-btn { padding: 10px 14px; background: #fff; border: 1px solid #ccc; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.due-quick { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.due-quick-btn { padding: 6px 12px; font-size: 12px; border-radius: 14px; background: #fff; border: 1px solid #ccc; cursor: pointer; color: #666; }
+
+.due-badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #eee; color: #666; }
+.due-badge.overdue { background: #fcebeb; color: #791f1f; font-weight: 500; }
+.due-badge.today { background: #fff4d6; color: #7a5a00; }
+.due-badge.soon { background: #faeeda; color: #633806; }
+
+.tags-area { display: flex; flex-wrap: wrap; gap: 6px; min-height: 4px; margin-bottom: 8px; }
+.tag-chip {
+  padding: 6px 12px; font-size: 13px; border-radius: 14px;
+  background: #fff; border: 1px solid #ccc; cursor: pointer;
+  color: #666;
+}
+.tag-chip.on { background: #1a1a1a; color: #faf8f3; border-color: #1a1a1a; }
+.tag-input-row { display: flex; gap: 8px; }
+.tag-input-row input { flex: 1; }
+.tag-add-btn { padding: 10px 14px; background: #fff; border: 1px solid #ccc; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.tag-empty { font-size: 12px; color: #aaa; }
+
+.save {
+  width: 100%; padding: 14px; background: #1a1a1a; color: #faf8f3;
+  border: none; border-radius: 6px; font-size: 15px; cursor: pointer;
+  margin-top: 16px;
+}
+.status { text-align: center; margin-top: 10px; font-size: 13px; min-height: 18px; }
+.status.ok { color: #2a8a6a; }
+.status.ng { color: #c44; }
+
+.filter-row { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; flex-wrap: wrap; }
+.filter-row select { padding: 8px 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; background: #fff; }
+.filter-label { font-size: 12px; color: #666; }
+
+.task {
+  display: flex; gap: 10px; padding: 12px; background: #fff;
+  border: 1px solid #eee; border-radius: 6px; margin-bottom: 8px;
+  align-items: flex-start;
+}
+.task.done { opacity: 0.5; }
+.task[data-q="1"] { border-left: 3px solid #c44; }
+.task[data-q="2"] { border-left: 3px solid #2a8a6a; }
+.task[data-q="3"] { border-left: 3px solid #b87718; }
+.task[data-q="4"] { border-left: 3px solid #888; }
+.task-text { flex: 1; word-wrap: break-word; min-width: 0; }
+.task.done .task-text { text-decoration: line-through; }
+.task-meta { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
+.meta-pill { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #eee; color: #666; }
+.meta-pill.q1 { background: #fcebeb; color: #791f1f; }
+.meta-pill.q2 { background: #e1f5ee; color: #085041; }
+.meta-pill.q3 { background: #faeeda; color: #633806; }
+.meta-pill.q4 { background: #f0f0f0; color: #2c2c2a; }
+.cb { width: 20px; height: 20px; cursor: pointer; flex-shrink: 0; margin-top: 2px; }
+.edit-btn { background: #fff; border: 1px solid #ccc; color: #666; font-size: 12px; padding: 5px 10px; cursor: pointer; flex-shrink: 0; border-radius: 6px; }
+.del { background: none; border: none; color: #999; font-size: 18px; cursor: pointer; padding: 4px 8px; flex-shrink: 0; }
+.empty { text-align: center; color: #aaa; padding: 40px; }
+
+.matrix-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.matrix-cell {
+  border-radius: 8px;
+  padding: 12px;
+  min-height: 120px;
+}
+.matrix-cell.mq1 { background: #fcebeb; }
+.matrix-cell.mq2 { background: #e1f5ee; }
+.matrix-cell.mq3 { background: #faeeda; }
+.matrix-cell.mq4 { background: #f0f0f0; }
+.matrix-head {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.matrix-cell.mq1 .matrix-head { color: #791f1f; }
+.matrix-cell.mq2 .matrix-head { color: #085041; }
+.matrix-cell.mq3 .matrix-head { color: #633806; }
+.matrix-cell.mq4 .matrix-head { color: #2c2c2a; }
+.matrix-item {
+  font-size: 12px;
+  padding: 6px 8px;
+  background: rgba(255,255,255,0.75);
+  border-radius: 4px;
+  margin-bottom: 4px;
+  word-wrap: break-word;
+}
+.matrix-item .matrix-due {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(0,0,0,0.06);
+  color: #555;
+}
+.matrix-item .matrix-due.overdue { background: rgba(196,68,68,0.15); color: #791f1f; }
+.matrix-item .matrix-due.today { background: rgba(255,200,0,0.18); color: #7a5a00; }
+.matrix-item .matrix-due.soon { background: rgba(184,119,24,0.15); color: #633806; }
+.matrix-empty { font-size: 11px; color: rgba(0,0,0,0.3); }
+
+.modal-overlay {
+  display: none;
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 1000;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 20px;
+  overflow-y: auto;
+}
+.modal-overlay.open { display: flex; }
+.modal-box {
+  background: #faf8f3;
+  width: 100%; max-width: 500px;
+  border-radius: 10px;
+  padding: 20px;
+  margin: auto;
+}
+.modal-title {
+  font-size: 14px; color: #666;
+  margin-bottom: 14px;
+  font-weight: 500;
+}
+.modal-actions {
+  display: flex; gap: 8px; margin-top: 18px;
+}
+.modal-actions button {
+  flex: 1; padding: 12px; border-radius: 6px;
+  font-size: 14px; cursor: pointer;
+}
+.btn-cancel {
+  background: #fff; border: 1px solid #ccc; color: #666;
+}
+.btn-save-edit {
+  background: #1a1a1a; border: none; color: #faf8f3;
+}
+
+/* データ移行エリア */
+.data-section {
+  margin-top: 32px;
+  padding-top: 16px;
+  border-top: 1px solid #ddd;
+  text-align: center;
+}
+.data-section h3 {
+  font-size: 12px;
+  color: #999;
+  font-weight: 500;
+  margin-bottom: 10px;
+  letter-spacing: 0.05em;
+}
+.data-section .data-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.data-section button {
+  padding: 8px 14px;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #666;
+}
+.data-section .hint {
+  font-size: 11px;
+  color: #aaa;
+  margin-top: 8px;
+  line-height: 1.5;
+}
+
+@media (max-width: 480px) {
+  .qbtns { grid-template-columns: 1fr; }
+  .matrix-grid { grid-template-columns: 1fr; }
+  .matrix-cell { min-height: 80px; }
+}
+</style>
+</head>
+<body>
+
+<h1>タスク管理</h1>
+
+<div class="tabs">
+  <button class="tab active" id="tab-add">追加</button>
+  <button class="tab" id="tab-list">一覧 <span id="count">(0)</span></button>
+  <button class="tab" id="tab-matrix">マトリクス</button>
+</div>
+
+<div id="view-add">
+  <label class="label">タスク内容</label>
+  <textarea id="input" placeholder="思いついたタスクをメモ..."></textarea>
+
+  <label class="label">領域</label>
+  <div class="qbtns">
+    <button class="qbtn q1" data-q="1"><div class="qnum">第1領域</div><div>重要 × 緊急</div></button>
+    <button class="qbtn q2" data-q="2"><div class="qnum">第2領域</div><div>重要 × 緊急でない</div></button>
+    <button class="qbtn q3" data-q="3"><div class="qnum">第3領域</div><div>重要でない × 緊急</div></button>
+    <button class="qbtn q4" data-q="4"><div class="qnum">第4領域</div><div>重要でない × 緊急でない</div></button>
+  </div>
+
+  <label class="label">期限(任意)</label>
+  <div class="due-row">
+    <input type="date" id="due-date">
+    <button id="due-clear" class="due-clear-btn">なし</button>
+  </div>
+  <div class="due-quick">
+    <button class="due-quick-btn" data-days="0">今日</button>
+    <button class="due-quick-btn" data-days="1">明日</button>
+    <button class="due-quick-btn" data-days="7">1週間後</button>
+    <button class="due-quick-btn" data-days="30">1ヶ月後</button>
+  </div>
+
+  <label class="label">タグ(任意)</label>
+  <div id="existing-tags" class="tags-area"></div>
+  <div class="tag-input-row">
+    <input type="text" id="new-tag" placeholder="新しいタグを作成">
+    <button id="add-tag-btn" class="tag-add-btn">追加</button>
+  </div>
+
+  <button class="save" id="save-btn">タスクを保存</button>
+  <div id="status" class="status"></div>
+</div>
+
+<div id="view-list" style="display:none;">
+  <div class="filter-row">
+    <span class="filter-label">表示:</span>
+    <select id="filter-q">
+      <option value="all">すべての領域</option>
+      <option value="1">第1領域</option>
+      <option value="2">第2領域</option>
+      <option value="3">第3領域</option>
+      <option value="4">第4領域</option>
+    </select>
+    <select id="filter-t">
+      <option value="all">すべてのタグ</option>
+    </select>
+    <select id="sort-by">
+      <option value="created">作成順</option>
+      <option value="due">期限順</option>
+    </select>
+  </div>
+  <div id="list"></div>
+</div>
+
+<div id="view-matrix" style="display:none;">
+  <div class="matrix-grid">
+    <div class="matrix-cell mq1" data-mq="1">
+      <div class="matrix-head">第1 / 重要×緊急</div>
+      <div class="matrix-items"></div>
+    </div>
+    <div class="matrix-cell mq2" data-mq="2">
+      <div class="matrix-head">第2 / 重要×緊急でない</div>
+      <div class="matrix-items"></div>
+    </div>
+    <div class="matrix-cell mq3" data-mq="3">
+      <div class="matrix-head">第3 / 重要でない×緊急</div>
+      <div class="matrix-items"></div>
+    </div>
+    <div class="matrix-cell mq4" data-mq="4">
+      <div class="matrix-head">第4 / 重要でない×緊急でない</div>
+      <div class="matrix-items"></div>
+    </div>
+  </div>
+</div>
+
+<!-- データ移行エリア -->
+<div class="data-section">
+  <h3>データ移行</h3>
+  <div class="data-buttons">
+    <button id="export-btn">書き出し</button>
+    <button id="import-btn">取り込み</button>
+    <input type="file" id="import-file" accept=".json,application/json" style="display:none;">
+  </div>
+  <div class="hint">バージョン更新時に旧版で書き出し→新版で取り込み</div>
+</div>
+
+<!-- 編集モーダル -->
+<div class="modal-overlay" id="edit-modal">
+  <div class="modal-box">
+    <div class="modal-title">タスクを編集</div>
+
+    <label class="label">タスク内容</label>
+    <textarea id="edit-text"></textarea>
+
+    <label class="label">領域</label>
+    <div class="qbtns">
+      <button class="qbtn q1" data-eq="1"><div class="qnum">第1領域</div><div>重要 × 緊急</div></button>
+      <button class="qbtn q2" data-eq="2"><div class="qnum">第2領域</div><div>重要 × 緊急でない</div></button>
+      <button class="qbtn q3" data-eq="3"><div class="qnum">第3領域</div><div>重要でない × 緊急</div></button>
+      <button class="qbtn q4" data-eq="4"><div class="qnum">第4領域</div><div>重要でない × 緊急でない</div></button>
+    </div>
+
+    <label class="label">期限</label>
+    <div class="due-row">
+      <input type="date" id="edit-due">
+      <button id="edit-due-clear" class="due-clear-btn">なし</button>
+    </div>
+    <div class="due-quick">
+      <button class="edit-quick-btn" data-days="0">今日</button>
+      <button class="edit-quick-btn" data-days="1">明日</button>
+      <button class="edit-quick-btn" data-days="7">1週間後</button>
+      <button class="edit-quick-btn" data-days="30">1ヶ月後</button>
+    </div>
+
+    <label class="label">タグ</label>
+    <div id="edit-tags" class="tags-area"></div>
+
+    <div class="modal-actions">
+      <button class="btn-cancel" id="edit-cancel">キャンセル</button>
+      <button class="btn-save-edit" id="edit-save">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var tasks = [];
+var allTags = [];
+var selectedQ = null;
+var selectedTags = [];
+
+var editingId = null;
+var editingQ = null;
+var editingTags = [];
+
+function load() {
+  try {
+    var raw = localStorage.getItem('simple-tasks-v3');
+    if (raw) {
+      var d = JSON.parse(raw);
+      tasks = d.tasks || [];
+      allTags = d.tags || [];
+    }
+  } catch (e) { tasks = []; allTags = []; }
+}
+
+function save() {
+  try {
+    localStorage.setItem('simple-tasks-v3', JSON.stringify({tasks: tasks, tags: allTags}));
+  } catch (e) {}
+}
+
+function updateCount() {
+  var n = 0;
+  for (var i = 0; i < tasks.length; i++) if (!tasks[i].done) n++;
+  document.getElementById('count').textContent = '(' + n + ')';
+}
+
+function selectQ(q) {
+  selectedQ = q;
+  var btns = document.querySelectorAll('#view-add .qbtn');
+  for (var i = 0; i < btns.length; i++) {
+    if (parseInt(btns[i].getAttribute('data-q')) === q) {
+      btns[i].classList.add('sel');
+    } else {
+      btns[i].classList.remove('sel');
+    }
+  }
+}
+
+function selectEditQ(q) {
+  editingQ = q;
+  var btns = document.querySelectorAll('#edit-modal .qbtn');
+  for (var i = 0; i < btns.length; i++) {
+    if (parseInt(btns[i].getAttribute('data-eq')) === q) {
+      btns[i].classList.add('sel');
+    } else {
+      btns[i].classList.remove('sel');
+    }
+  }
+}
+
+function todayStr() {
+  var d = new Date();
+  var y = d.getFullYear();
+  var m = d.getMonth() + 1;
+  var day = d.getDate();
+  if (m < 10) m = '0' + m;
+  if (day < 10) day = '0' + day;
+  return y + '-' + m + '-' + day;
+}
+
+function addDaysStr(days) {
+  var d = new Date();
+  d.setDate(d.getDate() + days);
+  var y = d.getFullYear();
+  var m = d.getMonth() + 1;
+  var day = d.getDate();
+  if (m < 10) m = '0' + m;
+  if (day < 10) day = '0' + day;
+  return y + '-' + m + '-' + day;
+}
+
+function daysBetween(fromStr, toStr) {
+  var a = new Date(fromStr + 'T00:00:00');
+  var b = new Date(toStr + 'T00:00:00');
+  return Math.round((b - a) / 86400000);
+}
+
+function buildDueBadge(dueStr) {
+  if (!dueStr) return null;
+  var diff;
+  try {
+    diff = daysBetween(todayStr(), dueStr);
+  } catch (e) {
+    return null;
+  }
+  var parts = dueStr.split('-');
+  var month = parseInt(parts[1], 10);
+  var day = parseInt(parts[2], 10);
+  var md = month + '/' + day;
+  var cls = '';
+  var label = '';
+  if (diff < 0) { cls = 'overdue'; label = (-diff) + '日超過 (' + md + ')'; }
+  else if (diff === 0) { cls = 'today'; label = '今日 (' + md + ')'; }
+  else if (diff === 1) { cls = 'soon'; label = '明日 (' + md + ')'; }
+  else if (diff <= 3) { cls = 'soon'; label = 'あと' + diff + '日 (' + md + ')'; }
+  else { cls = ''; label = md; }
+  return { cls: cls, label: label };
+}
+
+function renderExistingTags() {
+  var container = document.getElementById('existing-tags');
+  container.innerHTML = '';
+  if (allTags.length === 0) {
+    var span = document.createElement('span');
+    span.className = 'tag-empty';
+    span.textContent = 'タグはまだありません';
+    container.appendChild(span);
+    return;
+  }
+  for (var i = 0; i < allTags.length; i++) {
+    var tag = allTags[i];
+    var btn = document.createElement('button');
+    btn.className = 'tag-chip' + (selectedTags.indexOf(tag) >= 0 ? ' on' : '');
+    btn.textContent = tag;
+    (function(tagName){
+      btn.addEventListener('click', function(){
+        toggleTag(tagName);
+      });
+    })(tag);
+    container.appendChild(btn);
+  }
+}
+
+function renderEditTags() {
+  var container = document.getElementById('edit-tags');
+  container.innerHTML = '';
+  if (allTags.length === 0) {
+    var span = document.createElement('span');
+    span.className = 'tag-empty';
+    span.textContent = 'タグはまだありません';
+    container.appendChild(span);
+    return;
+  }
+  for (var i = 0; i < allTags.length; i++) {
+    var tag = allTags[i];
+    var btn = document.createElement('button');
+    btn.className = 'tag-chip' + (editingTags.indexOf(tag) >= 0 ? ' on' : '');
+    btn.textContent = tag;
+    (function(tagName){
+      btn.addEventListener('click', function(){
+        toggleEditTag(tagName);
+      });
+    })(tag);
+    container.appendChild(btn);
+  }
+}
+
+function toggleTag(tag) {
+  var idx = selectedTags.indexOf(tag);
+  if (idx >= 0) selectedTags.splice(idx, 1);
+  else selectedTags.push(tag);
+  renderExistingTags();
+}
+
+function toggleEditTag(tag) {
+  var idx = editingTags.indexOf(tag);
+  if (idx >= 0) editingTags.splice(idx, 1);
+  else editingTags.push(tag);
+  renderEditTags();
+}
+
+function addNewTag() {
+  var input = document.getElementById('new-tag');
+  var tag = input.value.trim();
+  if (!tag) return;
+  if (allTags.indexOf(tag) < 0) allTags.push(tag);
+  if (selectedTags.indexOf(tag) < 0) selectedTags.push(tag);
+  input.value = '';
+  save();
+  renderExistingTags();
+  updateTagFilter();
+}
+
+function updateTagFilter() {
+  var sel = document.getElementById('filter-t');
+  var cur = sel.value;
+  sel.innerHTML = '';
+  var opt = document.createElement('option');
+  opt.value = 'all';
+  opt.textContent = 'すべてのタグ';
+  sel.appendChild(opt);
+  for (var i = 0; i < allTags.length; i++) {
+    var o = document.createElement('option');
+    o.value = allTags[i];
+    o.textContent = allTags[i];
+    sel.appendChild(o);
+  }
+  var found = false;
+  for (var j = 0; j < sel.options.length; j++) {
+    if (sel.options[j].value === cur) { found = true; break; }
+  }
+  if (found) sel.value = cur;
+}
+
+function saveTask() {
+  var text = document.getElementById('input').value.trim();
+  var status = document.getElementById('status');
+  if (!text) {
+    status.className = 'status ng';
+    status.textContent = 'タスク内容を入力してください';
+    return;
+  }
+  if (!selectedQ) {
+    status.className = 'status ng';
+    status.textContent = '領域を選択してください';
+    return;
+  }
+  var due = document.getElementById('due-date').value || null;
+  tasks.unshift({
+    id: Date.now() + '_' + Math.floor(Math.random() * 10000),
+    text: text,
+    q: selectedQ,
+    tags: selectedTags.slice(),
+    due: due,
+    done: false
+  });
+  save();
+  document.getElementById('input').value = '';
+  document.getElementById('due-date').value = '';
+  selectedQ = null;
+  selectedTags = [];
+  var btns = document.querySelectorAll('#view-add .qbtn');
+  for (var i = 0; i < btns.length; i++) btns[i].classList.remove('sel');
+  renderExistingTags();
+  status.className = 'status ok';
+  status.textContent = '✓ 保存しました';
+  updateCount();
+  setTimeout(function(){ status.textContent = ''; }, 2000);
+}
+
+function renderList() {
+  var container = document.getElementById('list');
+  var filterQ = document.getElementById('filter-q').value;
+  var filterT = document.getElementById('filter-t').value;
+  var sortBy = document.getElementById('sort-by').value;
+
+  var filtered = [];
+  for (var i = 0; i < tasks.length; i++) {
+    var t = tasks[i];
+    var taskTags = t.tags || [];
+    if (filterQ !== 'all' && t.q !== parseInt(filterQ)) continue;
+    if (filterT !== 'all' && taskTags.indexOf(filterT) < 0) continue;
+    filtered.push(t);
+  }
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<div class="empty">タスクがありません</div>';
+    return;
+  }
+
+  var notDone = [];
+  var done = [];
+  for (var n = 0; n < filtered.length; n++) {
+    if (filtered[n].done) done.push(filtered[n]);
+    else notDone.push(filtered[n]);
+  }
+
+  if (sortBy === 'due') {
+    notDone.sort(function(a, b){
+      if (!a.due && !b.due) return 0;
+      if (!a.due) return 1;
+      if (!b.due) return -1;
+      if (a.due < b.due) return -1;
+      if (a.due > b.due) return 1;
+      return 0;
+    });
+  }
+
+  var sorted = notDone.concat(done);
+
+  container.innerHTML = '';
+  for (var k = 0; k < sorted.length; k++) {
+    var task = sorted[k];
+    var div = document.createElement('div');
+    div.className = 'task' + (task.done ? ' done' : '');
+    div.setAttribute('data-q', task.q);
+
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'cb';
+    cb.checked = task.done;
+    (function(taskId){
+      cb.addEventListener('change', function(){
+        toggleDone(taskId);
+      });
+    })(task.id);
+
+    var body = document.createElement('div');
+    body.className = 'task-text';
+
+    var textDiv = document.createElement('div');
+    textDiv.textContent = task.text;
+    body.appendChild(textDiv);
+
+    var meta = document.createElement('div');
+    meta.className = 'task-meta';
+
+    var qPill = document.createElement('span');
+    qPill.className = 'meta-pill q' + task.q;
+    qPill.textContent = '第' + task.q + '領域';
+    meta.appendChild(qPill);
+
+    var dueBadgeInfo = buildDueBadge(task.due);
+    if (dueBadgeInfo) {
+      var duePill = document.createElement('span');
+      duePill.className = 'due-badge ' + dueBadgeInfo.cls;
+      duePill.textContent = dueBadgeInfo.label;
+      meta.appendChild(duePill);
+    }
+
+    var tagsList = task.tags || [];
+    for (var m = 0; m < tagsList.length; m++) {
+      var tagPill = document.createElement('span');
+      tagPill.className = 'meta-pill';
+      tagPill.textContent = '#' + tagsList[m];
+      meta.appendChild(tagPill);
+    }
+    body.appendChild(meta);
+
+    var editBtn = document.createElement('button');
+    editBtn.className = 'edit-btn';
+    editBtn.textContent = '編集';
+    (function(taskId){
+      editBtn.addEventListener('click', function(){
+        openEditModal(taskId);
+      });
+    })(task.id);
+
+    var del = document.createElement('button');
+    del.className = 'del';
+    del.innerHTML = '×';
+    (function(taskId){
+      del.addEventListener('click', function(){
+        deleteTask(taskId);
+      });
+    })(task.id);
+
+    div.appendChild(cb);
+    div.appendChild(body);
+    div.appendChild(editBtn);
+    div.appendChild(del);
+    container.appendChild(div);
+  }
+}
+
+function renderMatrix() {
+  for (var q = 1; q <= 4; q++) {
+    var cell = document.querySelector('.matrix-cell[data-mq="' + q + '"] .matrix-items');
+    if (!cell) continue;
+
+    var items = [];
+    for (var i = 0; i < tasks.length; i++) {
+      if (tasks[i].q === q && !tasks[i].done) items.push(tasks[i]);
+    }
+
+    items.sort(function(a, b){
+      if (!a.due && !b.due) return 0;
+      if (!a.due) return 1;
+      if (!b.due) return -1;
+      if (a.due < b.due) return -1;
+      if (a.due > b.due) return 1;
+      return 0;
+    });
+
+    cell.innerHTML = '';
+    if (items.length === 0) {
+      var empty = document.createElement('div');
+      empty.className = 'matrix-empty';
+      empty.textContent = 'なし';
+      cell.appendChild(empty);
+      continue;
+    }
+
+    for (var k = 0; k < items.length; k++) {
+      var t = items[k];
+      var itemDiv = document.createElement('div');
+      itemDiv.className = 'matrix-item';
+
+      var span = document.createElement('span');
+      span.textContent = t.text;
+      itemDiv.appendChild(span);
+
+      var dueInfo = buildDueBadge(t.due);
+      if (dueInfo) {
+        var dueSpan = document.createElement('span');
+        dueSpan.className = 'matrix-due ' + dueInfo.cls;
+        dueSpan.textContent = dueInfo.label;
+        itemDiv.appendChild(dueSpan);
+      }
+
+      cell.appendChild(itemDiv);
+    }
+  }
+}
+
+function toggleDone(id) {
+  for (var i = 0; i < tasks.length; i++) {
+    if (tasks[i].id === id) {
+      tasks[i].done = !tasks[i].done;
+      break;
+    }
+  }
+  save();
+  renderList();
+  updateCount();
+}
+
+function deleteTask(id) {
+  var newTasks = [];
+  for (var i = 0; i < tasks.length; i++) {
+    if (tasks[i].id !== id) newTasks.push(tasks[i]);
+  }
+  tasks = newTasks;
+  save();
+  renderList();
+  updateCount();
+}
+
+function openEditModal(id) {
+  var task = null;
+  for (var i = 0; i < tasks.length; i++) {
+    if (tasks[i].id === id) { task = tasks[i]; break; }
+  }
+  if (!task) return;
+  editingId = id;
+  editingQ = task.q;
+  editingTags = (task.tags || []).slice();
+  document.getElementById('edit-text').value = task.text;
+  document.getElementById('edit-due').value = task.due || '';
+  selectEditQ(task.q);
+  renderEditTags();
+  document.getElementById('edit-modal').classList.add('open');
+}
+
+function closeEditModal() {
+  document.getElementById('edit-modal').classList.remove('open');
+  editingId = null;
+  editingQ = null;
+  editingTags = [];
+}
+
+function applyEdit() {
+  if (!editingId) { closeEditModal(); return; }
+  var text = document.getElementById('edit-text').value.trim();
+  if (!text) { alert('タスク内容を入力してください'); return; }
+  if (!editingQ) { alert('領域を選択してください'); return; }
+  for (var i = 0; i < tasks.length; i++) {
+    if (tasks[i].id === editingId) {
+      tasks[i].text = text;
+      tasks[i].q = editingQ;
+      tasks[i].due = document.getElementById('edit-due').value || null;
+      tasks[i].tags = editingTags.slice();
+      break;
+    }
+  }
+  save();
+  closeEditModal();
+  renderList();
+  updateCount();
+}
+
+function switchTab(tab) {
+  document.getElementById('view-add').style.display = (tab === 'add') ? 'block' : 'none';
+  document.getElementById('view-list').style.display = (tab === 'list') ? 'block' : 'none';
+  document.getElementById('view-matrix').style.display = (tab === 'matrix') ? 'block' : 'none';
+  document.getElementById('tab-add').classList.toggle('active', tab === 'add');
+  document.getElementById('tab-list').classList.toggle('active', tab === 'list');
+  document.getElementById('tab-matrix').classList.toggle('active', tab === 'matrix');
+  if (tab === 'list') renderList();
+  if (tab === 'matrix') renderMatrix();
+}
+
+// データ書き出し
+function exportData() {
+  try {
+    var data = {
+      tasks: tasks,
+      tags: allTags,
+      exportedAt: new Date().toISOString()
+    };
+    var json = JSON.stringify(data, null, 2);
+    var blob = new Blob([json], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    // ファイル名に日付を含める
+    var now = new Date();
+    var y = now.getFullYear();
+    var m = now.getMonth() + 1;
+    var d = now.getDate();
+    if (m < 10) m = '0' + m;
+    if (d < 10) d = '0' + d;
+    a.download = 'tasks-' + y + '-' + m + '-' + d + '.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+  } catch (e) {
+    alert('書き出しに失敗しました: ' + e.message);
+  }
+}
+
+// データ取り込み
+function importData(file) {
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      var data = JSON.parse(e.target.result);
+      if (!data || !data.tasks) {
+        alert('正しいファイルではありません');
+        return;
+      }
+      var taskCount = data.tasks.length;
+      var tagCount = (data.tags || []).length;
+      var msg = taskCount + '件のタスクと' + tagCount + '件のタグを取り込みます。\n現在のデータは上書きされます。続けますか？';
+      if (!confirm(msg)) return;
+      tasks = data.tasks;
+      allTags = data.tags || [];
+      save();
+      renderExistingTags();
+      updateTagFilter();
+      renderList();
+      renderMatrix();
+      updateCount();
+      alert('取り込みが完了しました');
+    } catch (err) {
+      alert('ファイルの読み込みに失敗しました: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+}
+
+// イベント登録
+document.getElementById('tab-add').addEventListener('click', function(){ switchTab('add'); });
+document.getElementById('tab-list').addEventListener('click', function(){ switchTab('list'); });
+document.getElementById('tab-matrix').addEventListener('click', function(){ switchTab('matrix'); });
+
+var qbtns = document.querySelectorAll('#view-add .qbtn');
+for (var i = 0; i < qbtns.length; i++) {
+  (function(btn){
+    btn.addEventListener('click', function(){
+      selectQ(parseInt(btn.getAttribute('data-q')));
+    });
+  })(qbtns[i]);
+}
+
+var eqbtns = document.querySelectorAll('#edit-modal .qbtn');
+for (var ei = 0; ei < eqbtns.length; ei++) {
+  (function(btn){
+    btn.addEventListener('click', function(){
+      selectEditQ(parseInt(btn.getAttribute('data-eq')));
+    });
+  })(eqbtns[ei]);
+}
+
+document.getElementById('save-btn').addEventListener('click', saveTask);
+document.getElementById('add-tag-btn').addEventListener('click', addNewTag);
+document.getElementById('new-tag').addEventListener('keypress', function(e){
+  if (e.key === 'Enter') { e.preventDefault(); addNewTag(); }
+});
+
+document.getElementById('filter-q').addEventListener('change', renderList);
+document.getElementById('filter-t').addEventListener('change', renderList);
+document.getElementById('sort-by').addEventListener('change', renderList);
+
+document.getElementById('due-clear').addEventListener('click', function(){
+  document.getElementById('due-date').value = '';
+});
+
+var quickBtns = document.querySelectorAll('.due-quick-btn');
+for (var qb = 0; qb < quickBtns.length; qb++) {
+  (function(btn){
+    btn.addEventListener('click', function(){
+      var days = parseInt(btn.getAttribute('data-days'), 10);
+      document.getElementById('due-date').value = addDaysStr(days);
+    });
+  })(quickBtns[qb]);
+}
+
+document.getElementById('edit-cancel').addEventListener('click', closeEditModal);
+document.getElementById('edit-save').addEventListener('click', applyEdit);
+document.getElementById('edit-due-clear').addEventListener('click', function(){
+  document.getElementById('edit-due').value = '';
+});
+
+var editQuickBtns = document.querySelectorAll('.edit-quick-btn');
+for (var eq = 0; eq < editQuickBtns.length; eq++) {
+  (function(btn){
+    btn.addEventListener('click', function(){
+      var days = parseInt(btn.getAttribute('data-days'), 10);
+      document.getElementById('edit-due').value = addDaysStr(days);
+    });
+  })(editQuickBtns[eq]);
+}
+
+document.getElementById('edit-modal').addEventListener('click', function(e){
+  if (e.target === document.getElementById('edit-modal')) {
+    closeEditModal();
+  }
+});
+
+// データ移行ボタン
+document.getElementById('export-btn').addEventListener('click', exportData);
+document.getElementById('import-btn').addEventListener('click', function(){
+  document.getElementById('import-file').click();
+});
+document.getElementById('import-file').addEventListener('change', function(e){
+  var file = e.target.files[0];
+  if (file) importData(file);
+  // 同じファイルを再選択できるようにリセット
+  e.target.value = '';
+});
+
+// 初期化
+load();
+updateCount();
+renderExistingTags();
+updateTagFilter();
+</script>
+</body>
+</html>
