@@ -220,6 +220,28 @@ textarea { min-height: 80px; resize: vertical; }
   line-height: 1.5;
 }
 
+/* 端末間共有 (GitHub Gist) */
+.sync-bar {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  margin: -6px 0 14px; font-size: 12px; color: #888;
+}
+.sync-bar .sync-msg { flex: 1; min-width: 120px; }
+.sync-bar .sync-msg.ok { color: #2a8a6a; }
+.sync-bar .sync-msg.ng { color: #c44; }
+.sync-bar .sync-msg.warn { color: #a36510; }
+.sync-bar button {
+  padding: 6px 10px; background: #fff; border: 1px solid #ccc;
+  border-radius: 6px; cursor: pointer; font-size: 12px; color: #444;
+}
+.sync-bar button:disabled { opacity: 0.5; cursor: default; }
+.sync-bar button.primary { border-color: #1a1a1a; background: #1a1a1a; color: #fff; }
+.sync-bar button.primary.dirty { background: #2a8a6a; border-color: #2a8a6a; }
+.sync-form .field { margin-bottom: 10px; }
+.sync-form .field input { font-size: 14px; }
+.sync-form .help { font-size: 12px; color: #777; line-height: 1.6; margin-top: 8px; }
+.sync-form .help a { color: #2a6ab8; }
+.sync-form .help code { background: #f0ede6; padding: 1px 4px; border-radius: 3px; font-size: 11px; }
+
 @media (max-width: 480px) {
   .qbtns { grid-template-columns: 1fr; }
   .matrix-grid { grid-template-columns: 1fr; }
@@ -230,6 +252,13 @@ textarea { min-height: 80px; resize: vertical; }
 <body>
 
 <h1>タスク管理</h1>
+
+<div class="sync-bar" id="sync-bar">
+  <span class="sync-msg" id="sync-msg">共有: 未設定</span>
+  <button id="sync-pull-btn" title="他の端末で送信したタスクを取り込む">取得</button>
+  <button id="sync-push-btn" class="primary" title="このタスクを他の端末でも見られるように送信">共有</button>
+  <button id="sync-settings-btn">設定</button>
+</div>
 
 <div class="tabs">
   <button class="tab active" id="tab-add">追加</button>
@@ -363,6 +392,34 @@ textarea { min-height: 80px; resize: vertical; }
   </div>
 </div>
 
+<!-- 共有設定モーダル -->
+<div class="modal-overlay" id="sync-modal">
+  <div class="modal-box sync-form">
+    <div class="modal-title">端末間で共有 (GitHub Gist)</div>
+
+    <div class="field">
+      <label class="label">GitHub トークン</label>
+      <input type="text" id="sync-token" placeholder="ghp_xxxx (gist 権限だけのもの)" autocomplete="off" autocapitalize="off" spellcheck="false">
+    </div>
+    <div class="field">
+      <label class="label">Gist ID (空なら初回の「共有」で自動作成)</label>
+      <input type="text" id="sync-gist" placeholder="例: 3f2a9c…" autocomplete="off" autocapitalize="off" spellcheck="false">
+    </div>
+
+    <div class="help">
+      ・トークンは <a href="https://github.com/settings/tokens/new?scopes=gist&description=tasks-mini" target="_blank" rel="noopener">GitHub の設定 (Tokens classic)</a> で <code>gist</code> だけにチェックして作成。<br>
+      ・この端末のブラウザにだけ保存され、GitHub には送られません (API の認証にだけ使います)。<br>
+      ・他の端末では同じトークンと Gist ID を入れると、同じタスクが見られます。<br>
+      ・データは「秘密の Gist」に置かれます (検索には出ませんが、URL を知っている人は見られます)。
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn-cancel" id="sync-cancel">キャンセル</button>
+      <button class="btn-save-edit" id="sync-save">保存</button>
+    </div>
+  </div>
+</div>
+
 <script>
 var tasks = [];
 var allTags = [];
@@ -388,6 +445,7 @@ function save() {
   try {
     localStorage.setItem('simple-tasks-v3', JSON.stringify({tasks: tasks, tags: allTags}));
   } catch (e) {}
+  syncMarkDirty();
 }
 
 function updateCount() {
@@ -902,6 +960,239 @@ function importData(file) {
   reader.readAsText(file);
 }
 
+// ===== 端末間共有 (GitHub Gist) =====
+// トークンと Gist ID はこの端末の localStorage にだけ保存する。
+// データ本体は secret gist の tasks.json に {tasks, tags, updatedAt} で置く。
+var SYNC_KEY = 'simple-tasks-sync';
+var SYNC_FILE = 'tasks.json';
+var sync = { token: '', gistId: '', remoteUpdatedAt: null, dirty: false };
+var syncBusy = false;
+
+function syncLoad() {
+  try {
+    var raw = localStorage.getItem(SYNC_KEY);
+    if (raw) {
+      var d = JSON.parse(raw);
+      sync.token = d.token || '';
+      sync.gistId = d.gistId || '';
+      sync.remoteUpdatedAt = d.remoteUpdatedAt || null;
+      sync.dirty = !!d.dirty;
+    }
+  } catch (e) {}
+}
+
+function syncSave() {
+  try { localStorage.setItem(SYNC_KEY, JSON.stringify(sync)); } catch (e) {}
+}
+
+function syncConfigured() { return !!(sync.token && sync.gistId); }
+
+function syncMarkDirty() {
+  if (!sync.dirty) {
+    sync.dirty = true;
+    syncSave();
+  }
+  syncRenderBar();
+}
+
+function syncMsg(text, cls) {
+  var el = document.getElementById('sync-msg');
+  el.textContent = text;
+  el.className = 'sync-msg' + (cls ? ' ' + cls : '');
+}
+
+function syncRenderBar() {
+  var push = document.getElementById('sync-push-btn');
+  var pull = document.getElementById('sync-pull-btn');
+  var hasToken = !!sync.token;
+  push.disabled = syncBusy || !hasToken;
+  pull.disabled = syncBusy || !syncConfigured();
+  push.classList.toggle('dirty', hasToken && sync.dirty);
+  push.textContent = (hasToken && sync.dirty) ? '共有 (未送信あり)' : '共有';
+  if (!hasToken) {
+    syncMsg('共有: 未設定 (「設定」からトークンを入力)');
+  } else if (!sync.gistId) {
+    syncMsg('共有: 初回の「共有」で Gist を作成します');
+  }
+}
+
+function syncHeaders(json) {
+  var h = { 'Accept': 'application/vnd.github+json' };
+  if (sync.token) h['Authorization'] = 'Bearer ' + sync.token;
+  if (json) h['Content-Type'] = 'application/json';
+  return h;
+}
+
+function syncErrorText(res, body) {
+  if (res.status === 401) return 'トークンが無効です (設定を確認)';
+  if (res.status === 403) return 'トークンに gist 権限がないか、制限にかかりました';
+  if (res.status === 404) return 'Gist が見つかりません (ID を確認)';
+  var m = body && body.message ? body.message : ('HTTP ' + res.status);
+  return 'エラー: ' + m;
+}
+
+function syncFetchRemote() {
+  return fetch('https://api.github.com/gists/' + encodeURIComponent(sync.gistId), {
+    headers: syncHeaders(false), cache: 'no-store'
+  }).then(function(res){
+    return res.json().then(function(body){
+      if (!res.ok) throw new Error(syncErrorText(res, body));
+      var f = body.files && body.files[SYNC_FILE];
+      if (!f) throw new Error('Gist に ' + SYNC_FILE + ' がありません');
+      var data;
+      try { data = JSON.parse(f.content); } catch (e) { throw new Error('Gist の内容を読めません'); }
+      if (!data || !data.tasks) throw new Error('Gist の内容が正しくありません');
+      data.updatedAt = data.updatedAt || body.updated_at;
+      return data;
+    });
+  });
+}
+
+function syncApplyRemote(data) {
+  tasks = data.tasks || [];
+  allTags = data.tags || [];
+  try {
+    localStorage.setItem('simple-tasks-v3', JSON.stringify({tasks: tasks, tags: allTags}));
+  } catch (e) {}
+  sync.remoteUpdatedAt = data.updatedAt;
+  sync.dirty = false;
+  syncSave();
+  renderExistingTags();
+  updateTagFilter();
+  renderList();
+  renderMatrix();
+  updateCount();
+}
+
+function syncTimeLabel(iso) {
+  if (!iso) return '';
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  var h = d.getHours(), m = d.getMinutes();
+  return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + h + ':' + (m < 10 ? '0' + m : m);
+}
+
+function syncSetBusy(b) {
+  syncBusy = b;
+  syncRenderBar();
+}
+
+// 取得 (受信): Gist の内容でこの端末を上書きする
+function syncPull(opts) {
+  opts = opts || {};
+  if (!syncConfigured()) { openSyncModal(); return; }
+  if (syncBusy) return;
+  syncSetBusy(true);
+  syncMsg('取得中…');
+  syncFetchRemote().then(function(data){
+    if (opts.silent && data.updatedAt === sync.remoteUpdatedAt) {
+      // 前回と同じ内容
+      syncSetBusy(false);
+      syncMsg((sync.dirty ? '共有: 未送信の変更あり' : '共有: 最新 (' + syncTimeLabel(data.updatedAt) + ')'), sync.dirty ? 'warn' : '');
+      return;
+    }
+    if (sync.dirty && tasks.length > 0) {
+      if (opts.silent) {
+        syncSetBusy(false);
+        syncMsg('他の端末に新しいデータあり。「取得」で反映 (この端末の未送信分は消えます)', 'warn');
+        return;
+      }
+      if (!confirm('この端末の未送信の変更は消えて、共有されている ' + data.tasks.length + ' 件で上書きされます。続けますか？')) {
+        syncSetBusy(false);
+        syncRenderBar();
+        return;
+      }
+    }
+    syncApplyRemote(data);
+    syncSetBusy(false);
+    syncMsg('取得しました: ' + data.tasks.length + ' 件 (' + syncTimeLabel(data.updatedAt) + ')', 'ok');
+  }).catch(function(err){
+    syncSetBusy(false);
+    syncMsg(err.message, 'ng');
+  });
+}
+
+// 共有 (送信): この端末の内容を Gist に書く。初回は Gist を作る
+function syncPush() {
+  if (!sync.token) { openSyncModal(); return; }
+  if (syncBusy) return;
+  syncSetBusy(true);
+  syncMsg('送信中…');
+
+  var payload = { tasks: tasks, tags: allTags, updatedAt: new Date().toISOString() };
+  var body = { files: {} };
+  body.files[SYNC_FILE] = { content: JSON.stringify(payload, null, 2) };
+
+  var pre;
+  if (!sync.gistId) {
+    body.description = 'タスク管理 (tasks-mini) のデータ';
+    body.public = false;
+    pre = Promise.resolve(true);
+  } else {
+    // 他の端末が先に送信していたら上書き前に確認する
+    pre = syncFetchRemote().then(function(remote){
+      if (remote.updatedAt !== sync.remoteUpdatedAt) {
+        return confirm('他の端末が ' + syncTimeLabel(remote.updatedAt) + ' に送信した内容があります。\nこの端末の内容で上書きしますか？\n(キャンセルすると「取得」で相手の内容を先に受け取れます)');
+      }
+      return true;
+    });
+  }
+
+  pre.then(function(go){
+    if (!go) { syncSetBusy(false); syncRenderBar(); return; }
+    var url = 'https://api.github.com/gists' + (sync.gistId ? '/' + encodeURIComponent(sync.gistId) : '');
+    return fetch(url, {
+      method: sync.gistId ? 'PATCH' : 'POST',
+      headers: syncHeaders(true),
+      body: JSON.stringify(body)
+    }).then(function(res){
+      return res.json().then(function(resBody){
+        if (!res.ok) throw new Error(syncErrorText(res, resBody));
+        var created = !sync.gistId;
+        sync.gistId = resBody.id;
+        sync.remoteUpdatedAt = payload.updatedAt;
+        sync.dirty = false;
+        syncSave();
+        syncSetBusy(false);
+        syncMsg('共有しました: ' + tasks.length + ' 件 (' + syncTimeLabel(payload.updatedAt) + ')', 'ok');
+        if (created) {
+          alert('Gist を作成しました。\n\nGist ID: ' + resBody.id + '\n\n他の端末では「設定」で同じトークンとこの ID を入力してください。');
+        }
+      });
+    });
+  }).catch(function(err){
+    syncSetBusy(false);
+    syncMsg(err.message, 'ng');
+  });
+}
+
+function openSyncModal() {
+  document.getElementById('sync-token').value = sync.token;
+  document.getElementById('sync-gist').value = sync.gistId;
+  document.getElementById('sync-modal').classList.add('open');
+}
+
+function closeSyncModal() {
+  document.getElementById('sync-modal').classList.remove('open');
+}
+
+function applySyncSettings() {
+  var token = document.getElementById('sync-token').value.trim();
+  var gistId = document.getElementById('sync-gist').value.trim();
+  // URL を貼られた場合は末尾の ID だけ使う
+  var m = gistId.match(/([0-9a-f]{20,})\/?$/i);
+  if (m) gistId = m[1];
+  var changedGist = gistId !== sync.gistId;
+  sync.token = token;
+  sync.gistId = gistId;
+  if (changedGist) sync.remoteUpdatedAt = null;
+  syncSave();
+  closeSyncModal();
+  syncRenderBar();
+  // Gist を新しく指定したら、その内容をすぐ取り込む
+  if (changedGist && syncConfigured()) syncPull({ silent: tasks.length > 0 && sync.dirty });
+}
+
 // イベント登録
 document.getElementById('tab-add').addEventListener('click', function(){ switchTab('add'); });
 document.getElementById('tab-list').addEventListener('click', function(){ switchTab('list'); });
@@ -983,11 +1274,25 @@ document.getElementById('import-file').addEventListener('change', function(e){
   e.target.value = '';
 });
 
+// 共有ボタン
+document.getElementById('sync-push-btn').addEventListener('click', syncPush);
+document.getElementById('sync-pull-btn').addEventListener('click', function(){ syncPull(); });
+document.getElementById('sync-settings-btn').addEventListener('click', openSyncModal);
+document.getElementById('sync-cancel').addEventListener('click', closeSyncModal);
+document.getElementById('sync-save').addEventListener('click', applySyncSettings);
+document.getElementById('sync-modal').addEventListener('click', function(e){
+  if (e.target === document.getElementById('sync-modal')) closeSyncModal();
+});
+
 // 初期化
 load();
+syncLoad();
 updateCount();
 renderExistingTags();
 updateTagFilter();
+syncRenderBar();
+// 開いたときに他の端末の送信分があれば自動で取り込む
+if (syncConfigured()) syncPull({ silent: true });
 </script>
 </body>
 </html>
